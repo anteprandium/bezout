@@ -68,12 +68,31 @@ def Bezout(f,g):
     assert(gcd(A,B)==1)
     L=semi_linear_reduction(A,B)
     # Compute a common base ring.
-    K=common_field(L)
+    K=common_field([l[2] for l in L])
+    L=distribute_simple_cycles(K,L)
+    L=linear_reduction(L)
+    K=common_field([l[1] for l in L])
     L=distribute_cycles(K,L)
     return K,L
 
+def linear_reduction(L):
+    """docstring for linear_reduction"""
+    cycles=[]
+    x0,x1,x2=L[0][1].parent().gens()
+    for c in L:
+        a=c[2].monomial_coefficient(x1)
+        b=c[2].monomial_coefficient(x2)
+        C=c[1]
+        cycles.append(
+            [   c[0],
+                C(x0,b/a*x2,x2) if a!=0 else C(x0,x1,0),
+                c[2]
+            ])
+    return cycles
 
-def distribute_cycles(K,L):
+
+
+def distribute_simple_cycles(K,L):
     """docstring for distribute_cycles"""
     Cycles=[]
     for C in L:
@@ -81,16 +100,14 @@ def distribute_cycles(K,L):
             Cycles.append([C[0]*f[1], C[1].change_ring(K), f[0]])
     return Cycles
     
-    
-def common_field(L):    
-    """
-    L is the output of semi_linear_reduction. Output a field where all simple
-    cycles factor in linear forms.
-    """
-    K=A.base_ring()
+def distribute_cycles(K,L):
+    """docstring for distribute_cycles"""
+    Cycles=[]
     for C in L:
-        K=form_splitting_field(C[2].change_ring(K))
-    return K
+        for f in C[1].change_ring(K).factor():
+            Cycles.append([C[0]*f[1],  f[0], C[2].change_ring(K)])
+    return Cycles
+    
     
 
 def semi_linear_reduction(F,G):
@@ -136,7 +153,8 @@ def semi_linear_reduction(F,G):
     # arrange things so the second poly of the cycle has no x0.
     One=S(1)
     Permute=lambda c: c if c[2].degree(x0)==0 else [c[0], c[2], c[1]]
-    return [Permute(c) for c in cycle if c[1]!=One and c[2]!=One]
+    # return [Permute(c) for c in cycle if c[1]!=One and c[2]!=One]
+    return [Permute(c) for c in cycle]
 
 
 def form_splitting_field(Pol):
@@ -149,4 +167,14 @@ def form_splitting_field(Pol):
     phi=Hom(S,T)([1,Z,1]) if Pol.degree(x1)>0 else Hom(S,T)([1,1,Z])
     K=phi(Pol).splitting_field('alpha', simplify=True, simplify_all=True)
     if K.degree()==1: K=R
+    return K
+    
+def common_field(L):    
+    """
+    L is the output of semi_linear_reduction. Output a field where all simple
+    cycles factor in linear forms.
+    """
+    K=L[0].base_ring() # start here.
+    for C in L:
+        K=form_splitting_field(C.change_ring(K))
     return K
