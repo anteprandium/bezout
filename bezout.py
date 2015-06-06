@@ -1,9 +1,10 @@
+# coding: utf-8
 
 
 
 def Bezout(f,g):
     """
-    Compute Bezout's divisor of curves/projective curves/polynomials f and g.
+    Compute Bezout's divisor of affine curves/projective curves/polynomials f and g.
     The answer is a tuple consisting of a field K, which will be some extension 
     of the ground field of f and g, and a list of pairs (projective point, multiplicity).
     """
@@ -14,12 +15,18 @@ def Bezout(f,g):
     B=C2.defining_polynomial()
     assert(gcd(A,B)==1)
     L=semi_linear_reduction(A,B)
+    verbose("Semilinear reduction: %s"%L, level=1)
     # Compute a common base ring.
     K=common_field([l[2] for l in L])
+    verbose("Extension after reduction: %s"%K, level=1)
     L=distribute_simple_cycles(K,L)
+    verbose("Distributed simple cycles: %s"%L, level=1)
     L=linear_reduction(L)
+    verbose("Linear reduction: %s"%L, level=1)
     K=common_field([l[1] for l in L])
+    verbose("Extension after reduction: %s"%K, level=1)
     L=distribute_cycles(K,L)
+    verbose("Distributed cycles: %s"%L, level=1)
     PP=ProjectiveSpace(2)/K
     # Almost there, rearrange and simplify
     L=[ (c[0], PP(lin_poly_solve(c[1:])) ) for c in L]
