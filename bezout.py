@@ -1,40 +1,35 @@
 
 
-def split_into_forms(Pol):
+
+def Bezout(f,g):
     """
-    Given a homogeneous polynomial in two variables, return a tuple
-
-        (K, [(factors, mults)])
-
-    where `K` is an extension of the base ring of `Pol` such that
-    `Pol` factors into the linear factors given by the list, and
-    corresponding multiplicities. `K` is in fact
-    the splitting field of `Pol(X/Y)`.
-
-    Example:
-
-    >>> X,Y=PolynomialRing(QQ, "X,Y").gens()
-    >>> f=X^2+y^2
-    >>> split_into_forms(f)
-
-    (Number Field in alpha with defining polynomial Z^2 + 1, [(X + (-alpha)*Y, 1), (X +  (alpha)*Y, 1)])
-
-
-        """
-    assert(Pol.is_homogeneous())
-    R=Pol.base_ring()
-    X,Y=Pol.parent().gens()
-    if Pol.degree(X)==0: Y,X=X,Y
-    S=PolynomialRing(R,"Z")
-    Z=S.gen()
-    f=S(Pol.subs( {X: Z, Y:R(1)} ))
-    verbose("Splitting %s over %s..." %(f, S), level=1)
-    K=f.splitting_field('alpha', simplify=True, simplify_all=True)
-    if K.degree()==1: K=R
-    verbose("...and factoring over %s..." % K , level=1)
-    F=Pol.change_ring(K).factor()
-    return K, [factor for factor in F]
-
+    Compute Bezout's divisor of curves/projective curves/polynomials f and g.
+    The answer is a tuple consisting of a field K, which will be some extension 
+    of the ground field of f and g, and a list of pairs (projective point, multiplicity).
+    """
+    C1=projective_closure(Curve(f))
+    C2=projective_closure(Curve(g))
+    assert(C1.ambient_space()==C2.ambient_space())
+    A=C1.defining_polynomial()
+    B=C2.defining_polynomial()
+    assert(gcd(A,B)==1)
+    L=semi_linear_reduction(A,B)
+    # Compute a common base ring.
+    K=common_field([l[2] for l in L])
+    L=distribute_simple_cycles(K,L)
+    L=linear_reduction(L)
+    K=common_field([l[1] for l in L])
+    L=distribute_cycles(K,L)
+    PP=ProjectiveSpace(2)/K
+    # Almost there, rearrange and simplify
+    L=[ (c[0], PP(lin_poly_solve(c[1:])) ) for c in L]
+    d={}
+    for c in L:
+        if c[1] in d:
+            d[c[1]]+=c[0]
+        else:
+            d[c[1]]=c[0]
+    return K, [v for v in d.items() if v[1]!=0]
 
 
 def projective_closure(C):
@@ -56,39 +51,12 @@ def projective_closure(C):
     F=f.subs({x: o0, y:o1}).homogenize(o2)
     return Curve(F)
 
-def Bezout(f,g):
-    """
-
-    """
-    C1=projective_closure(Curve(f))
-    C2=projective_closure(Curve(g))
-    assert(C1.ambient_space()==C2.ambient_space())
-    A=C1.defining_polynomial()
-    B=C2.defining_polynomial()
-    assert(gcd(A,B)==1)
-    L=semi_linear_reduction(A,B)
-    # Compute a common base ring.
-    print "field"
-    K=common_field([l[2] for l in L])
-    L=distribute_simple_cycles(K,L)
-    L=linear_reduction(L)
-    print "field 2"
-    K=common_field([l[1] for l in L])
-    print "going on"
-    L=distribute_cycles(K,L)
-    PP=ProjectiveSpace(2)/K
-    # return  K,[ (c[0], PP(lin_poly_solve(c[1:])) ) for c in L]
-    # Rearrange and simplify
-    L=[ (c[0], PP(lin_poly_solve(c[1:])) ) for c in L]
-    d={}
-    for c in L:
-        if c[1] in d:
-            d[c[1]]+=c[0]
-        else:
-            d[c[1]]=c[0]
-    return K, d.items()
 
 def lin_poly_solve(P):
+    """
+    Return the point defined as the intersection of two lines, given as a list
+    homogeneous polynomials.
+    """
     x0,x1,x2=P[0].parent().gens()
     a0=P[0].coefficient(x0)
     a1=P[0].coefficient(x1)
@@ -108,17 +76,17 @@ def linear_reduction(L):
         a=c[2].monomial_coefficient(x1)
         b=c[2].monomial_coefficient(x2)
         C=c[1]
-        cycles.append(
-            [   c[0],
-                C(x0,b/a*x2,x2) if a!=0 else C(x0,x1,0),
-                c[2]
-            ])
+        cycles.append([c[0],C(x0,b/a*x2,x2) if a!=0 else C(x0,x1,0),c[2]])
     return cycles
 
-
-
 def distribute_simple_cycles(K,L):
-    """docstring for distribute_cycles"""
+    """
+    `L` is assumed to be a list of triples `[m_i, F_i, G_i]`, as returned
+    by `semi_linear_reduction` or `linear_reduction`.  
+    
+    Factor every G_i over K and apply cycle distribution.
+    
+    """
     Cycles=[]
     for C in L:
         for f in C[2].change_ring(K).factor():
@@ -126,7 +94,13 @@ def distribute_simple_cycles(K,L):
     return Cycles
 
 def distribute_cycles(K,L):
-    """docstring for distribute_cycles"""
+    """
+    `L` is assumed to be a list of triples `[m_i, F_i, G_i]`, as returned
+    by `semi_linear_reduction` or `linear_reduction`.  
+    
+    Factor every F_i over K and apply cycle distribution.
+    
+    """
     Cycles=[]
     for C in L:
         for f in C[1].change_ring(K).factor():
@@ -134,9 +108,15 @@ def distribute_cycles(K,L):
     return Cycles
 
 
-
 def semi_linear_reduction(F,G):
-    """docstring for semi_linear_reduction"""
+    """
+    `F` and `G` are homogeneous polynomials in a ring of three variables.
+    Return a list of triples `[m_i, F_i, G_i]` such that the intersection
+    cycle [F,G] equals sum(m_i*[F_i,G_i]). The resulting `G_i` cycles 
+    will not have the first variable.
+    
+
+    """
     assert(F.parent()==G.parent())
     x0,x1,x2=F.parent().gens()
     # TODO: permute variables.
@@ -184,6 +164,10 @@ def semi_linear_reduction(F,G):
 
 
 def form_splitting_field(Pol):
+    """
+    Compute a field such the homogeneous bivariate polynomial `Pol(x1,x2)`, 
+    sitting inside a ring `K[x0,x1,x2]` factors into linear forms. 
+    """
     assert(Pol.is_homogeneous())
     R=Pol.base_ring()
     S=Pol.parent()
@@ -197,8 +181,9 @@ def form_splitting_field(Pol):
 
 def common_field(L):
     """
-    L is the output of semi_linear_reduction. Output a field where all simple
-    cycles factor in linear forms.
+    `L` is a list of polynomials. Return a field `K` so that every polynomial
+    polinomial in the list factors into linear forms.
+    
     """
     K=L[0].base_ring() # start here.
     for C in L:
