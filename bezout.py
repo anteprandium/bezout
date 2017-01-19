@@ -3,16 +3,19 @@
 
 def Bezout(f, g, every_step=False):
     """
-    Compute Bezout's divisor of affine curves/projective curves/
-    bivariate polynomials f and g.
-    The answer is a tuple (K,e, L), consisting of a field K, which 
-    will be some extension of the ground field of f and g, 
-    and embedding e of the ground field of f and g into K, 
-    and L a list of pairs (projective point, multiplicity).
+    Compute Bezout's divisor of f and g, where f an g can be
+    - bivariate polynomials
+    - affine curves
+    - projective curves
+    - homogenous polynomials in three variables
     
-    If there has been no extension, then e is not an embedding but
-    the same base field. In any case, if f and g
-    are polynomials of some ring L[x,y,z], and K, e, Points = Bezout(f,g),
+    The answer is a tuple (K, e, L), consisting of a field K, which 
+    will be some extension of the (common) ground field of f and g, 
+    and embedding e of the ground field of f and g into K, 
+    and L a list of pairs (projective point in P^2(K), multiplicity).
+    
+    Consequently, if f and g are polynomials of some ring L[x,y,z], 
+    and K, e, Points = Bezout(f,g),
     then f.change_ring(e) and g.change_ring(e) will give polynomials
     in K[x,y,z].
     
@@ -37,18 +40,9 @@ def Bezout(f, g, every_step=False):
     if every_step: print "Left common_splitting_field:", f
     L = left_distribute(f,L)
     if every_step: print "Linear cycles:", L
-    # field = f.codomain() if hasattr(f,'codomain') else f
-    # e and f may be embeddings or rings
-    if hasattr(f, 'codomain'):
-        field = f.codomain()
-        if hasattr(e,'codomain'):
-            embedding = f*e
-        else:
-            embedding =f
-    else:
-        field = f
-        embedding = f
-    # Compute the intersection of the linear cycles
+    embedding = f*e
+    field = embedding.codomain()
+    # Compute the intersection points of the linear cycles in P^2.
     PP = ProjectiveSpace(2)/field
     L = [ [mi, PP(lin_poly_solve(Li,Mi))] for (mi,Li,Mi) in L]
     if every_step: print "points:", L
@@ -236,9 +230,8 @@ def common_splitting_field(L):
         This function will construct a field in which every
         polynomial splits into linear forms.
     
-    Output: Either an embedding, e, of the field K into the splitting
-        field or the oriinal base ring. In the embedding case,
-        You can recover the common splitting field 
+    Output: An embedding, e, of the field K into the splitting
+        field. You can recover the common splitting field 
         with e.codomain().
     
         Also, note that if F is a polynomial in K[x0,x1,x2],
@@ -246,29 +239,24 @@ def common_splitting_field(L):
     
     Note: we have to compute the common splitting field in this
     fancy way because we might have more than one algebraic 
-    extension K1 \subset K2 \subset K3, and the morphisms may
-    not be canonical. Hence, SAGEMATH needs help in specifying
-    the correct morphism.
+    extension K1 \subset K2 \subset K3, and the morphisms that
+    embed one into the other may not be canonically natural. 
+    Hence, SAGEMATH needs help in "remembering" which embedding
+    it used to compute the embedding in the first place.
     """
     assert(len(set([parent(f) for f in L]))<=1)
     T = PolynomialRing(L[0].base_ring(), "w")
     l = [make_univariate(f,T) for f in L]    
     
     Ri = l[0].base_ring() # start here.
-    ei = None
+    ei = Ri.Hom(Ri)(Ri.gens()) # identity Morphism
     for p in l:
-        if ei:
-            t = p.change_ring(ei)
-        else:
-            t=p
+        t = p.change_ring(ei)
         Ri1, psi1 = t.splitting_field('alpha',simplify_all=True,simplify=True,map=True)
         if Ri1.degree()>1:
             Ri = Ri1
-            if ei:
-                ei = psi1 * ei
-            else:
-                ei = psi1
-    return ei if ei else Ri
+            ei = psi1 *ei
+    return ei 
 
 def check_bezout(h,g, results=None):
     # compute Bezout if not previously computed
