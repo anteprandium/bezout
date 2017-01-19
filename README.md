@@ -31,6 +31,9 @@ Bezout's Theorem for plane curves states the following:
 **Theorem.** Let $X=V(F)$, $Y=V(G)$ be two plane curves without common components over the affine plane $\mathbb{A}^{2}(k)$ over a field $k$. Then, the intersection points, counted with multiplicities of $X$ and $Y$ over the projective plane $\mathbb{P}^{2}(K)$ is $\deg(F)\cdot \deg(G)$, where $K$ is the algebraic closure of $k$.
 
 
+**Note:** The documentation below is no longer up to date. 
+
+
 It follows that Bezout's Theorem is true also over some algebraic extension of $k$, since every intersection point over $K$ has algebraic coordinates.
 
 The function `Bezout(F,G)` computes an appropriate extension `K` of the ground field $k$, and points and multiplicities
