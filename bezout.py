@@ -1,42 +1,65 @@
 # coding: utf-8
 
 
-
-def Bezout(f,g):
+def Bezout(f, g, every_step=False):
     """
-    Compute Bezout's divisor of affine curves/projective curves/polynomials f and g.
-    The answer is a tuple consisting of a field K, which will be some extension 
-    of the ground field of f and g, and a list of pairs (projective point, multiplicity).
+    Compute Bezout's divisor of affine curves/projective curves/
+    bivariate polynomials f and g.
+    The answer is a tuple (K,e, L), consisting of a field K, which 
+    will be some extension of the ground field of f and g, 
+    and embedding e of the ground field of f and g into K, 
+    and L a list of pairs (projective point, multiplicity).
+    
+    If there has been no extension, then e is not an embedding but
+    the same base field. In any case, if f and g
+    are polynomials of some ring L[x,y,z], and K, e, Points = Bezout(f,g),
+    then f.change_ring(e) and g.change_ring(e) will give polynomials
+    in K[x,y,z].
+    
     """
-    C1=projective_closure(Curve(f))
-    C2=projective_closure(Curve(g))
+    C1 = projective_closure(Curve(f))
+    C2 = projective_closure(Curve(g))
     assert(C1.ambient_space()==C2.ambient_space())
-    A=C1.defining_polynomial()
-    B=C2.defining_polynomial()
-    assert(gcd(A,B)==1)
-    L=semi_linear_reduction(A,B)
-    verbose("Semilinear reduction: %s"%L, level=1)
-    # Compute a common base ring.
-    K=common_field([l[2] for l in L])
-    verbose("Extension after reduction: %s"%K, level=1)
-    L=distribute_simple_cycles(K,L)
-    verbose("Distributed simple cycles: %s"%L, level=1)
-    L=linear_reduction(L)
-    verbose("Linear reduction: %s"%L, level=1)
-    K=common_field([l[1] for l in L])
-    verbose("Extension after reduction: %s"%K, level=1)
-    L=distribute_cycles(K,L)
-    verbose("Distributed cycles: %s"%L, level=1)
-    PP=ProjectiveSpace(2)/K
-    # Almost there, rearrange and simplify
-    L=[ (c[0], PP(lin_poly_solve(c[1:])) ) for c in L]
-    d={}
-    for c in L:
-        if c[1] in d:
-            d[c[1]]+=c[0]
+    A = C1.defining_polynomial()
+    B = C2.defining_polynomial()
+    if every_step: print "Bezout of (%s,%s)"%(A,B)
+    if gcd(A,B)!=1:
+        raise ValueError, "The curves have a common factor(s)."
+    L = euclidean_reduction(A,B)
+    if every_step: print "euclidean_reduction:", L
+    e = common_splitting_field([Gi for (mi,Fi,Gi) in L])
+    if every_step: print "Right commmon_field:", e
+    L = right_distribute(e,L)
+    if every_step: print "right_distribute:", L
+    L = linear_reduction(L)
+    if every_step: print "linear_reduction:", L
+    f = common_splitting_field([Fi for (mi,Fi,Gi) in L])
+    if every_step: print "Left common_splitting_field:", f
+    L = left_distribute(f,L)
+    if every_step: print "Linear cycles:", L
+    # field = f.codomain() if hasattr(f,'codomain') else f
+    # e and f may be embeddings or rings
+    if hasattr(f, 'codomain'):
+        field = f.codomain()
+        if hasattr(e,'codomain'):
+            embedding = f*e
         else:
-            d[c[1]]=c[0]
-    return K, [v for v in d.items() if v[1]!=0]
+            embedding =f
+    else:
+        field = f
+        embedding = f
+    # Compute the intersection of the linear cycles
+    PP = ProjectiveSpace(2)/field
+    L = [ [mi, PP(lin_poly_solve(Li,Mi))] for (mi,Li,Mi) in L]
+    if every_step: print "points:", L
+    #    Group multiplicities
+    d = {}
+    for (m, P) in L:
+        if P in d:
+            d[P] += m
+        else:
+            d[P] = m
+    return (field, embedding, [(P,v) for (P,v) in d.items() if v>0])
 
 
 def projective_closure(C):
@@ -59,140 +82,210 @@ def projective_closure(C):
     return Curve(F)
 
 
-def lin_poly_solve(P):
+def lin_poly_solve(L, M):
     """
-    Return the point defined as the intersection of two lines, given as a list
-    homogeneous polynomials.
+    Return the point defined as the intersection of two lines
+    (given as degree-one polynomials in some field).
     """
-    x0,x1,x2=P[0].parent().gens()
-    a0=P[0].coefficient(x0)
-    a1=P[0].coefficient(x1)
-    a2=P[0].coefficient(x2)
-    b0=P[1].coefficient(x0)
-    b1=P[1].coefficient(x1)
-    b2=P[1].coefficient(x2)
+    x0,x1,x2 = M.parent().gens()
+    a0 = L.coefficient(x0)
+    a1 = L.coefficient(x1)
+    a2 = L.coefficient(x2)
+    b0 = M.coefficient(x0)
+    b1 = M.coefficient(x1)
+    b2 = M.coefficient(x2)
     # a0 a1 a2
     # b0 b1 b2
-    return [a1*b2-a2*b1, a2*b0-a0*b2, a0*b1-a1*b0]
+    return [a1*b2-a2*b1, -a0*b2+a2*b0, a0*b1-a1*b0]
 
 def linear_reduction(L):
-    """docstring for linear_reduction"""
-    cycles=[]
-    x0,x1,x2=L[0][1].parent().gens()
-    for c in L:
-        a=c[2].monomial_coefficient(x1)
-        b=c[2].monomial_coefficient(x2)
-        C=c[1]
-        cycles.append([c[0],C(x0,b/a*x2,x2) if a!=0 else C(x0,x1,0),c[2]])
+    """
+    Input: L is a list of elements [m, Fi, Li], where
+        mi is accumulated multiplicity
+        Fi is a poly in three variables
+        Li is a linear form in two variables
+    Return:
+        Linear reduction of each Fi*Li.
+    """
+    cycles = []
+    x0,x1,x2 = L[0][1].parent().gens()
+    for [mi, Fi, Li] in L:
+        a = Li.monomial_coefficient(x1)
+        b = Li.monomial_coefficient(x2)
+        if a==0:
+            cycles.append([mi, Fi(x0,x1,0), Li])
+        else:
+            cycles.append([mi, Fi(x0, -b/a*x2, x2), Li])
     return cycles
 
-def distribute_simple_cycles(K,L):
+def right_distribute(K,L):
     """
-    `L` is assumed to be a list of triples `[m_i, F_i, G_i]`, as returned
-    by `semi_linear_reduction` or `linear_reduction`.  
+    `L` is assumed to be a list of triples `[mi, Fi, Gi]`, as returned
+    by `euclidean_reduction` or `linear_reduction`.
     
-    Factor every G_i over K and apply cycle distribution.
-    
-    """
-    Cycles=[]
-    for C in L:
-        for f in C[2].change_ring(K).factor():
-            Cycles.append([C[0]*f[1], C[1].change_ring(K), f[0]])
-    return Cycles
+    K is an embedding into a big enough field.
 
-def distribute_cycles(K,L):
+    Factor every G_i over a big enough field and apply cycle 
+    distribution.  Note that every polynomial in the ouput
+    has base field the big field.
+
     """
-    `L` is assumed to be a list of triples `[m_i, F_i, G_i]`, as returned
-    by `semi_linear_reduction` or `linear_reduction`.  
-    
-    Factor every F_i over K and apply cycle distribution.
-    
+    return [[mi*ri, Fi.change_ring(K), Li]
+            for [mi, Fi, Gi] in L
+            for (Li, ri) in Gi.change_ring(K).factor() ]
+
+def left_distribute(K,L):
     """
-    Cycles=[]
-    for C in L:
-        for f in C[1].change_ring(K).factor():
-            Cycles.append([C[0]*f[1],  f[0], C[2].change_ring(K)])
-    return Cycles
+    Left cycle distribution. See  `right_distribute`.
+    """
+    switch = lambda l: [(mi, Gi, Fi) for (mi, Fi, Gi) in l]
+    return switch(right_distribute(K,switch(L)))
 
 
-def semi_linear_reduction(F,G):
+def euclidean_reduction(A,B):
     """
-    `F` and `G` are homogeneous polynomials in a ring of three variables.
-    Return a list of triples `[m_i, F_i, G_i]` such that the intersection
-    cycle [F,G] equals sum(m_i*[F_i,G_i]). The resulting `G_i` cycles 
+    Input: `A` and `B` are homogeneous polynomials in a ring of three variables.
+
+    Output: A list of triples `[m_i, F_i, G_i]` such that the intersection
+    cycle [A,B] equals sum(m_i*[F_i,G_i]). The resulting `G_i` cycles
     will not have the first variable.
-    
-
     """
-    assert(F.parent()==G.parent())
-    x0,x1,x2=F.parent().gens()
-    # TODO: permute variables.
-    R_0=F.base_ring()
-    S=F.parent() # original ring
-    # Now, invert all but the first variable, as ring T
-    S1=PolynomialRing(R_0,"a,b").fraction_field()
-    a,b=S1.gens()
-    T=PolynomialRing(S1,"c")
-    c=T.gen()
-    phi=Hom(S,T)([c,a,b])
-    # Construct a helper ring.
-    U=PolynomialRing(R_0,"c,a,b")
-    psi=Hom(U,S)([x0,x1,x2])
-    # After all this definitions, we have the following rings:
-    # S=R[x0,x1,x2] --phi--> T=R(a,b)[c]  --U()-->  U=R[c,a,b] --psi--> S
-    # in particular, for any poly f in T, psi(U(f)) in S again.
-    # Also, for any poly f in S, we must have: psi(U(phi(f)))==f.
-    A=F
-    B=G
+    assert(A.parent()==B.parent())
+    x0,x1,x2 = A.parent().gens()
+    F,G = A,B
+    # Construct T=K(y1,y2)[y0]=K(x1,x2)[x0]
+    S = F.parent()
+    S0 = PolynomialRing(F.base_ring(), "y1,y2")
+    y1, y2 = S0.gens()
+    T = PolynomialRing(S0.fraction_field(), "y0")
+    y0 = T.gen()
+    # Construct Morphisms
+    phi = lambda W: T(W(y0,y1,y2))
+    U = PolynomialRing(F.base_ring(),"y0,y1,y2")
+    psi1 = Hom(U,S)([x0,x1,x2])
+    psi = lambda W: psi1(U(W))
+
+    # After all this definitions, we have the following
+    # rings and morphisms:
+    # S=R[x0,x1,x2] --phi-> T=R(a,b)[c] --psi-> S.
+    if F.degree(x0)<G.degree(x0):
+        F,G = G,F
     cycle=[]
-    # A, B in S
-    while B.degree(x0)>0:
-        q,r=phi(A).quo_rem(phi(B))  # q,r in  T
-        H=q.denominator()*r.denominator()/gcd(q.denominator(),r.denominator()) # in T
-        Q=q*H # in T
-        R=r*H # in T
-        G=gcd(  B, psi(U(R))  )  # in S
-        G_T=phi(G) # in T
-        H1=H/G_T # in T
-        B1=phi(B)/G_T # in T
-        R1=R/G_T # in T
-        cycle.append([-1, psi(U(H1)), psi(U(B1))  ])
-        cycle.append([1, A, G])
-        A=psi(U(B1)) # again in S
-        B=psi(U(R1)) # again in S
-    cycle.append([1, B,A])
-    # We're done, more or less. Just filter out trivials and
-    # arrange things so the second poly of the cycle has no x0.
-    One=S(1)
-    Permute=lambda c: c if c[2].degree(x0)==0 else [c[0], c[2], c[1]]
-    return [Permute(c) for c in cycle if not c[1].is_unit() and
-        not c[2].is_unit()]
-    # return [Permute(c) for c in cycle]
+    while G.degree(x0)>0:
+        q,r = phi(F).quo_rem(phi(G))  # q,r in  T
+        H = T(lcm(S0(q.denominator()),S0(r.denominator())))
+        Q = q*H # in T
+        R = r*H # in T
+        # print "(H,Q,R):", (H,Q,R) , "=", (psi(H), psi(Q), psi(R))
+        assert(psi(H).parent()==F.parent())
+        assert(psi(H)*F==psi(Q)*G+psi(R)) # in S
+        E = gcd(G, psi(R))  # in S, E == gcd(G,R) == gcd(H,G)
+        assert(E in S)
+        assert(E==gcd(psi(H), G))
+        # In T:
+        E_T = phi(E)
+        H0 = H/E_T
+        G0 = phi(G)/E_T
+        R0 = R/E_T
+        # In original ring:
+        R0S = psi(R0)
+        G0S = psi(G0)
+        H0S = psi(H0)
+        # print "(E, H0, G0, R0):",  (E,H0S,G0S,R0S)
+        assert(H0S*F==psi(Q)*G0S+R0S)
+        cycle.append([1, F, E])
+        cycle.append([-1, G0S, H0S])
+        # print "cycle:", cycle
+        F = G0S
+        G = R0S
+        assert(F.degree(x0)>=G.degree(x0))
+    cycle.append([1,F,G])
+    # print "cycle:", cycle
+    non_trivials = [[m, Fi, Gi] for [m, Fi, Gi] in cycle if not Gi.is_unit()]
+    # print "non trivial cycle:", non_trivials
+    return non_trivials
 
 
-def form_splitting_field(Pol):
-    """
-    Compute a field such the homogeneous bivariate polynomial `Pol(x1,x2)`, 
-    sitting inside a ring `K[x0,x1,x2]` factors into linear forms. 
-    """
-    assert(Pol.is_homogeneous())
-    R=Pol.base_ring()
-    S=Pol.parent()
-    x0,x1,x2=S.gens()
-    T=PolynomialRing(R,"Z")
-    Z=T.gen()
-    phi=Hom(S,T)([1,Z,1]) if Pol.degree(x1)>0 else Hom(S,T)([1,1,Z])
-    K=phi(Pol).splitting_field('alpha', simplify=True, simplify_all=True)
-    if K.degree()==1: K=R
-    return K
 
-def common_field(L):
+def make_univariate(F, T):
     """
-    `L` is a list of polynomials. Return a field `K` so that every polynomial
-    polinomial in the list factors into linear forms.
+    Given a homogeneous bivariate polynomial `F(xi,xj)`,
+    sitting inside a ring `K[x0,x1,x2]`, dehomogenise it
+    into ring T (univariate), for later factoring.
+    """
+    assert(F.is_homogeneous() and len(F.variables())<3)
+    R = F.base_ring()
+    S = F.parent()
+    x0,x1,x2 = S.gens()
+    eta = T.gen()
+    if F.degree(x0)>0:
+        Fa = F(eta,1,1)
+    elif F.degree(x1)>0:
+        Fa = F(1,eta,1)
+    else:
+        Fa = F(1,1,eta)
+    return Fa
+        
+
+
+def common_splitting_field(L):
+    """
+    Input: `L` is a list of homogeneous bivariate polynomials 
+        inside the same ring K[x0,x1,x2]. 
+            
+        This function will construct a field in which every
+        polynomial splits into linear forms.
     
+    Output: Either an embedding, e, of the field K into the splitting
+        field or the oriinal base ring. In the embedding case,
+        You can recover the common splitting field 
+        with e.codomain().
+    
+        Also, note that if F is a polynomial in K[x0,x1,x2],
+        then F.change_ring(e) will embed F into e(K)[x0,x1,x2].
+    
+    Note: we have to compute the common splitting field in this
+    fancy way because we might have more than one algebraic 
+    extension K1 \subset K2 \subset K3, and the morphisms may
+    not be canonical. Hence, SAGEMATH needs help in specifying
+    the correct morphism.
     """
-    K=L[0].base_ring() # start here.
-    for C in L:
-        K=form_splitting_field(C.change_ring(K))
-    return K
+    assert(len(set([parent(f) for f in L]))<=1)
+    T = PolynomialRing(L[0].base_ring(), "w")
+    l = [make_univariate(f,T) for f in L]    
+    
+    Ri = l[0].base_ring() # start here.
+    ei = None
+    for p in l:
+        if ei:
+            t = p.change_ring(ei)
+        else:
+            t=p
+        Ri1, psi1 = t.splitting_field('alpha',simplify_all=True,simplify=True,map=True)
+        if Ri1.degree()>1:
+            Ri = Ri1
+            if ei:
+                ei = psi1 * ei
+            else:
+                ei = psi1
+    return ei if ei else Ri
+
+def check_bezout(h,g, results=None):
+    # compute Bezout if not previously computed
+    if results:
+        K, e, Points = results
+    else: 
+        K, e, Points = Bezout(h,g)
+        print Points, e
+    d = h.degree()*g.degree()
+    # checks:
+    # 1: the polynomials can be embedded into the appropriate extension
+    # 2: the values of the polynomials over the intersection points is 0
+    # 3: the computed multiplicities of the points add up to d, the product
+    #    of the degrees
+    valuesF = [h.change_ring(e)(P[0], P[1], P[2]) for (P,v) in Points]
+    valuesG = [g.change_ring(e)(P[0], P[1], P[2]) for (P,v) in Points]
+    return d == sum([v for (P,v) in Points])  and  not any(valuesF) and not any(valuesG)
+
+
+

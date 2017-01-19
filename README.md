@@ -2,11 +2,9 @@
 
 # An implementation of Bezout's Theorem for plane curves.
 
-
 This is an implementation of an algorithm to compute Bezout's intersection cycle of two curves, using Euclid's algorithm to first reduce the problem.
 
 This is joint work by G. Márquez, J. Soto and J. M. Tornero, based on previous work by Hilmar and Smyth, to which we add a linear reduction step. The details can be found in the preprint [to be written]()
-
 
 
 <!--
