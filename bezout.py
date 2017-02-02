@@ -1,5 +1,16 @@
 # coding: utf-8
 
+"""
+see README.md
+"""
+
+__version__ = '1.0'
+__autor__ = u"Marquez-Campos, G; Soto, M. J.; Tornero, Jose M."
+
+
+
+
+
 
 def Bezout(f, g, every_step=False):
     """
