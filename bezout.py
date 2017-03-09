@@ -70,7 +70,7 @@ def Bezout(f, g, every_step=False):
 def projective_closure(C):
     """
     Return the projective closure of the curve C (given as an affine scheme)
-    as a projective scheme.
+    as a projective scheme with. The homogeneising variable is the last one.
 
     >>> X,Y=AffineSpace(2, QQ).gens()
     >>> f=Curve(X^3-Y^2)
@@ -253,7 +253,7 @@ def common_splitting_field(L):
     extension K1 \subset K2 \subset K3, and the morphisms that
     embed one into the other may not be canonically natural. 
     Hence, SAGEMATH needs help in "remembering" which embedding
-    it used to compute the embedding in the first place.
+    it used to compute the splitting field in the first place.
     """
     assert(len(set([parent(f) for f in L]))<=1)
     T = PolynomialRing(L[0].base_ring(), "w")
@@ -287,4 +287,80 @@ def check_bezout(h,g, results=None):
     return d == sum([v for (P,v) in Points])  and  not any(valuesF) and not any(valuesG)
 
 
+# ============================================
+# = Milnor number of a bivariate polynomial. =
+# ============================================
 
+def Milnor(f):
+    """docstring for Milnor"""
+    assert(len(f.parent().gens())==2)
+    x, y = f.parent().gens()
+    K, e, points = Bezout(diff(f,x), diff(f,y))
+    affine, infinity = [], []
+    for (P,m) in points:
+        (infinity, affine)[P[2]!=0].append((P,m))
+    # print affine, infinity
+    fe = f.change_ring(e)
+    mu_f = add([v for (P,v) in affine if fe(*P.dehomogenize(2))==0])
+    mu_oo = sum([v for (P,v) in infinity]) if len(infinity)<=1 else None
+    return mu_f, mu_oo
+
+
+def form_decomposition(F):
+    t = F.total_degree()
+    l = (t+1)*[0]
+    for (u,m) in F:
+        l[m.total_degree()] += u*m
+    return l
+
+def least_degree_form(F):
+    if F==0:
+        return F
+    else: # return first non-zero form. 
+        return next(( (i,F.parent()(f)) 
+                        for (i,f) in enumerate(form_decomposition(F)) if f!=0))
+                        
+def Sufficient_Noether_Conditions(F, G, H, bezout_divisor=None):
+    """
+    F, G, H must be projective plane curves with no common components.
+    """
+    k, e, points = bezout_divisor or Bezout(F,G)
+    return all(distinct_tangents_condition(F,G,H,P,e) for (P,m) in points)
+    
+
+
+def distinct_tangents_condition(F, G, H, P, e=None):
+    """
+    F,G,H are plane projective curves, and P is a point in 
+    the projective plane over some some algebraic extension K of the 
+    ground field of F. e is an embedding of the ground field of F into K,
+    or nothing.
+    
+    """
+    if not e:
+        _R = Curve(F).defining_polynomial().parent().base_ring()
+        e = _R.Hom(_R)(_R.gens())
+    Fc = projective_closure(Curve(F)).defining_polynomial().change_ring(e)
+    Gc = projective_closure(Curve(G)).defining_polynomial().change_ring(e)
+    Hc = projective_closure(Curve(H)).defining_polynomial().change_ring(e)
+    # rightmost non-zero coordinate of P
+    i = len(P)-1-next(i for (i,c) in enumerate(P[::-1]) if c!=0)
+    # dehomogenise and translate so that P |-> Origin
+    p = P.dehomogenize(i)
+    varbs = list(Fc.parent().gens())
+    x_i = varbs.pop(i)
+    sbs = dict([(x,x+a) for (x,a) in zip(varbs,p)]+[(x_i,1)])
+    f = Fc.subs(sbs)
+    g = Gc.subs(sbs)
+    h = Hc.subs(sbs)
+    k, f_k = least_degree_form(f)
+    l, g_l = least_degree_form(g)
+    m, h_m = least_degree_form(h)
+    if  m < k+l-1: 
+        return False # No need to compute the tangents.
+    else:
+        e1 = common_splitting_field([f_k, g_l])
+        tangents_f = Set([t for t,m in f_k.change_ring(e1).factor()])
+        tangents_g = Set([t for t,m in g_l.change_ring(e1).factor()])
+        # print tangents_g, tangents_f
+        return tangents_g.intersection(tangents_f).is_empty() 
